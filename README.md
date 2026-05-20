@@ -1,6 +1,6 @@
 # AI Chat Flutter with OpenRouter / VSEGPT Authentication
 
-Мобильное AI-приложение на Flutter с поддержкой OpenRouter и VSEGPT, системой авторизации по API-ключу и PIN-коду, аналитикой использования моделей и современным тёплым UI.
+Десктопное AI-приложение на Flutter с поддержкой OpenRouter и VSEGPT, системой авторизации по API-ключу и PIN-коду, аналитикой использования моделей и современным тёплым UI.
 
 ---
 
