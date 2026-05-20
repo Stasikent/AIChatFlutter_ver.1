@@ -133,12 +133,17 @@ flutter run
 
 ## Скриншоты
 
-Добавьте сюда изображения интерфейса:
+| First Auth | PIN |
+|------------|-----|
+| ![](assets/screenshots/first_auth.png) | ![](assets/screenshots/pin.png) |
 
-- экран авторизации
-- чат
-- аналитика
-- статистика
+| Chat | Analytics |
+|-------|------------|
+| ![](assets/screenshots/example_dialog.png) | ![](assets/screenshots/analytics.png) |
+
+| Save History | Export Logs |
+|---------------|-------------|
+| ![](assets/screenshots/save_history.png) | ![](assets/screenshots/save_logs.png) |
 
 ---
 
