@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../pages/provider_settings_page.dart';
+import '../pages/token_statistics_page.dart';
+import '../pages/analytics_chart_page.dart';
 
 import '../providers/chat_provider.dart';
 import '../models/message.dart';
@@ -274,6 +277,7 @@ class ChatScreen extends StatelessWidget {
           child: SafeArea(
             child: Column(
               children: [
+                _buildModelFilters(context),
                 Expanded(
                   child: _buildMessagesList(),
                 ),
@@ -302,6 +306,169 @@ class ChatScreen extends StatelessWidget {
       ),
     );
   }
+
+  Widget _buildModelFilters(BuildContext context) {
+  return Consumer<ChatProvider>(
+    builder: (context, chatProvider, child) {
+      return Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: 8,
+          vertical: 6,
+        ),
+        color: const Color(0xFF2A1208),
+        child: Column(
+          children: [
+
+            // Поиск
+            TextField(
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+              ),
+              decoration: InputDecoration(
+                hintText: 'Поиск модели...',
+                hintStyle: const TextStyle(
+                  color: Colors.white54,
+                ),
+                prefixIcon: const Icon(
+                  Icons.search,
+                  color: Colors.orange,
+                ),
+                filled: true,
+                fillColor: const Color(0xFF4A160A),
+                border: OutlineInputBorder(
+                  borderRadius:
+                      BorderRadius.circular(10),
+                ),
+              ),
+              onChanged: (value) {
+                chatProvider
+                    .setModelSearchQuery(value);
+              },
+            ),
+
+            const SizedBox(height: 8),
+
+            Row(
+              children: [
+
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    initialValue:
+                        chatProvider.modelFamilyFilter,
+                    dropdownColor:
+                        const Color(0xFF2A1208),
+
+                    decoration:
+                        const InputDecoration(
+                      labelText: 'Провайдер',
+                      labelStyle:
+                          TextStyle(
+                        color: Colors.white70,
+                      ),
+                    ),
+
+                    items: chatProvider
+                        .modelFamilies
+                        .map((family) {
+                      return DropdownMenuItem(
+                        value: family,
+                        child: Text(
+                          family,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                          ),
+                        ),
+                      );
+                    }).toList(),
+
+                    onChanged: (value) {
+                      if (value != null) {
+                        chatProvider
+                            .setModelFamilyFilter(
+                                value);
+                      }
+                    },
+                  ),
+                ),
+
+                const SizedBox(width: 10),
+
+                Expanded(
+                  child:
+                      DropdownButtonFormField<
+                          String>(
+                    initialValue:
+                        chatProvider.modelSortMode,
+
+                    dropdownColor:
+                        const Color(0xFF2A1208),
+
+                    decoration:
+                        const InputDecoration(
+                      labelText: 'Сортировка',
+                      labelStyle:
+                          TextStyle(
+                        color: Colors.white70,
+                      ),
+                    ),
+
+                    items: const [
+
+                      DropdownMenuItem(
+                        value:
+                            'name_asc',
+                        child:
+                            Text('А-Я'),
+                      ),
+
+                      DropdownMenuItem(
+                        value:
+                            'name_desc',
+                        child:
+                            Text('Я-А'),
+                      ),
+
+                      DropdownMenuItem(
+                        value:
+                            'price_asc',
+                        child: Text(
+                            'Цена ↑'),
+                      ),
+
+                      DropdownMenuItem(
+                        value:
+                            'price_desc',
+                        child: Text(
+                            'Цена ↓'),
+                      ),
+
+                      DropdownMenuItem(
+                        value:
+                            'context_desc',
+                        child: Text(
+                            'Контекст ↑'),
+                      ),
+                    ],
+
+                    onChanged: (value) {
+                      if (value != null) {
+                        chatProvider
+                            .setModelSortMode(
+                                value);
+                      }
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
 
   Widget _buildModelSelector(BuildContext context) {
     return Consumer<ChatProvider>(
@@ -334,10 +501,52 @@ class ChatScreen extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      model['name'] ?? '',
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 12),
+                    Row(
+                      children: [
+
+                        Expanded(
+                          child: Text(
+                            model['name'] ?? '',
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+
+                        Consumer<ChatProvider>(
+                          builder: (context, chatProvider, child) {
+
+                            final modelId =
+                                model['id'] ?? '';
+
+                            final isFavorite =
+                                chatProvider
+                                    .isFavoriteModel(
+                                        modelId);
+
+                            return GestureDetector(
+                              onTap: () {
+                                chatProvider
+                                    .toggleFavoriteModel(
+                                        modelId);
+                              },
+
+                              child: Icon(
+                                isFavorite
+                                    ? Icons.star
+                                    : Icons.star_border,
+
+                                color: isFavorite
+                                    ? Colors.amber
+                                    : Colors.white54,
+
+                                size: 16,
+                              ),
+                            );
+                          },
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 4),
                     Row(
@@ -417,6 +626,36 @@ class ChatScreen extends StatelessWidget {
         final chatProvider = context.read<ChatProvider>();
 
         switch (choice) {
+          case 'new_chat':
+            await chatProvider.createNewChat();
+            break;
+
+          case 'chat_list':
+            _showChatsDialog(context);
+            break;
+          case 'settings':
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const ProviderSettingsPage(),
+              ),
+            );
+            break;
+
+          case 'tokens':
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const TokenStatisticsPage(),
+              ),
+            );
+            break;
+
+          case 'chart':
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const AnalyticsChartPage(),
+              ),
+            );
+            break;
           case 'export':
             final path = await chatProvider.exportMessagesAsJson();
 
@@ -457,6 +696,66 @@ class ChatScreen extends StatelessWidget {
         }
       },
       itemBuilder: (BuildContext context) => [
+        const PopupMenuItem<String>(
+          value: 'new_chat',
+          height: 40,
+          child: Text(
+            '+ Новый чат',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+            ),
+          ),
+        ),
+
+        const PopupMenuItem<String>(
+          value: 'chat_list',
+          height: 40,
+          child: Text(
+            'Список чатов',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+            ),
+          ),
+        ),
+        
+        const PopupMenuItem<String>(
+          value: 'settings',
+          height: 40,
+          child: Text(
+            'Настройки',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+            ),
+          ),
+        ),
+
+        const PopupMenuItem<String>(
+          value: 'tokens',
+          height: 40,
+          child: Text(
+            'Статистика токенов',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+            ),
+          ),
+        ),
+
+        const PopupMenuItem<String>(
+          value: 'chart',
+          height: 40,
+          child: Text(
+            'График расходов',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+            ),
+          ),
+        ),
+        
         const PopupMenuItem<String>(
           value: 'export',
           height: 40,
@@ -597,135 +896,247 @@ class ChatScreen extends StatelessWidget {
   }
 
   void _showAnalyticsDialog(BuildContext context) {
-    final chatProvider = context.read<ChatProvider>();
+  final chatProvider = context.read<ChatProvider>();
 
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          backgroundColor: const Color(0xFF2A1208),
-          title: const Text(
-            'Статистика',
-            style: TextStyle(color: Colors.white, fontSize: 14),
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Всего сообщений: ${chatProvider.messages.length}',
-                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+  showDialog(
+    context: context,
+    builder: (BuildContext context) {
+      return AlertDialog(
+        backgroundColor: const Color(0xFF2A1208),
+        title: const Text(
+          'Статистика',
+          style: TextStyle(color: Colors.white, fontSize: 14),
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Всего сообщений: ${chatProvider.messages.length}',
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Баланс: ${chatProvider.balance}',
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Использование по моделям:',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  'Баланс: ${chatProvider.balance}',
-                  style: const TextStyle(color: Colors.white70, fontSize: 12),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Использование по моделям:',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                ...chatProvider.messages
-                    .fold<Map<String, Map<String, dynamic>>>(
-                      {},
-                      (map, msg) {
-                        if (msg.modelId != null) {
-                          if (!map.containsKey(msg.modelId)) {
-                            map[msg.modelId!] = {
-                              'count': 0,
-                              'tokens': 0,
-                              'cost': 0.0,
-                            };
-                          }
-
-                          map[msg.modelId]!['count'] =
-                              map[msg.modelId]!['count']! + 1;
-
-                          if (msg.tokens != null) {
-                            map[msg.modelId]!['tokens'] =
-                                map[msg.modelId]!['tokens']! + msg.tokens!;
-                          }
-
-                          if (msg.cost != null) {
-                            map[msg.modelId]!['cost'] =
-                                map[msg.modelId]!['cost']! + msg.cost!;
-                          }
+              ),
+              const SizedBox(height: 8),
+              ...chatProvider.messages
+                  .fold<Map<String, Map<String, dynamic>>>(
+                    {},
+                    (map, msg) {
+                      if (msg.modelId != null) {
+                        if (!map.containsKey(msg.modelId)) {
+                          map[msg.modelId!] = {
+                            'count': 0,
+                            'tokens': 0,
+                            'cost': 0.0,
+                          };
                         }
 
-                        return map;
-                      },
-                    )
-                    .entries
-                    .map(
-                      (entry) => Padding(
-                        padding: const EdgeInsets.only(left: 12, bottom: 6),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              entry.key,
-                              style: const TextStyle(
-                                color: Colors.white70,
-                                fontWeight: FontWeight.bold,
-                              ),
+                        map[msg.modelId]!['count'] =
+                            map[msg.modelId]!['count']! + 1;
+
+                        if (msg.tokens != null) {
+                          map[msg.modelId]!['tokens'] =
+                              map[msg.modelId]!['tokens']! + msg.tokens!;
+                        }
+
+                        if (msg.cost != null) {
+                          map[msg.modelId]!['cost'] =
+                              map[msg.modelId]!['cost']! + msg.cost!;
+                        }
+                      }
+
+                      return map;
+                    },
+                  )
+                  .entries
+                  .map(
+                    (entry) => Padding(
+                      padding: const EdgeInsets.only(left: 12, bottom: 6),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            entry.key,
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontWeight: FontWeight.bold,
                             ),
+                          ),
+                          Text(
+                            'Сообщений: ${entry.value['count']}',
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                            ),
+                          ),
+                          if (entry.value['tokens'] > 0) ...[
                             Text(
-                              'Сообщений: ${entry.value['count']}',
+                              'Токенов: ${entry.value['tokens']}',
                               style: const TextStyle(
                                 color: Colors.white70,
                                 fontSize: 12,
                               ),
                             ),
-                            if (entry.value['tokens'] > 0) ...[
-                              Text(
-                                'Токенов: ${entry.value['tokens']}',
-                                style: const TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 12,
-                                ),
-                              ),
-                              Consumer<ChatProvider>(
-                                builder: (context, chatProvider, child) {
-                                  final rawCost =
-                                      (entry.value['cost'] ?? 0.0) as double;
+                            Consumer<ChatProvider>(
+                              builder: (context, chatProvider, child) {
+                                final rawCost =
+                                    (entry.value['cost'] ?? 0.0) as double;
 
-                                  return Text(
-                                    'Стоимость: ${_formatAnalyticsCost(chatProvider, rawCost)}',
-                                    style: const TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 12,
-                                    ),
-                                  );
-                                },
-                              ),
-                            ],
+                                return Text(
+                                  'Стоимость: ${_formatAnalyticsCost(chatProvider, rawCost)}',
+                                  style: const TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 12,
+                                  ),
+                                );
+                              },
+                            ),
                           ],
-                        ),
+                        ],
                       ),
                     ),
-              ],
+                  ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text(
+              'Закрыть',
+              style: TextStyle(fontSize: 12),
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text(
-                'Закрыть',
-                style: TextStyle(fontSize: 12),
+        ],
+      );
+    },
+  );
+}
+
+void _showChatsDialog(BuildContext context) {
+  final chatProvider = context.read<ChatProvider>();
+
+  showDialog(
+    context: context,
+    builder: (BuildContext context) {
+      return AlertDialog(
+        backgroundColor: const Color(0xFF2A1208),
+        title: const Text(
+          'Чаты',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 16,
+          ),
+        ),
+        content: SizedBox(
+          width: 420,
+          child: Consumer<ChatProvider>(
+            builder: (context, provider, child) {
+              return ListView.builder(
+                shrinkWrap: true,
+                itemCount: provider.chats.length,
+                itemBuilder: (context, index) {
+                  final chat = provider.chats[index];
+
+                  final isCurrent =
+                      provider.currentChat?.id == chat.id;
+
+                  return ListTile(
+                    title: Text(
+                      chat.title,
+                      style: TextStyle(
+                        color: isCurrent
+                            ? Colors.orange
+                            : Colors.white,
+                        fontWeight: isCurrent
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                      ),
+                    ),
+                    subtitle: Text(
+                      '${chat.messages.length} сообщений',
+                      style: const TextStyle(
+                        color: Colors.white54,
+                        fontSize: 11,
+                      ),
+                    ),
+                    leading: Icon(
+                      Icons.chat_bubble_outline,
+                      color: isCurrent
+                          ? Colors.orange
+                          : Colors.white54,
+                    ),
+                    trailing: IconButton(
+                      icon: const Icon(
+                        Icons.delete_outline,
+                        color: Colors.redAccent,
+                      ),
+                      onPressed: () async {
+                        await provider.deleteChat(chat.id);
+
+                        if (context.mounted &&
+                            provider.chats.isEmpty) {
+                          Navigator.of(context).pop();
+                        }
+                      },
+                    ),
+                    onTap: () async {
+                      await provider.switchChat(chat.id);
+
+                      if (context.mounted) {
+                        Navigator.of(context).pop();
+                      }
+                    },
+                  );
+                },
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              await chatProvider.createNewChat();
+
+              if (context.mounted) {
+                Navigator.of(context).pop();
+              }
+            },
+            child: const Text(
+              '+ Новый чат',
+              style: TextStyle(
+                color: Colors.orange,
               ),
             ),
-          ],
-        );
-      },
-    );
-  }
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text(
+              'Закрыть',
+              style: TextStyle(
+                color: Colors.white70,
+              ),
+            ),
+          ),
+        ],
+      );
+    },
+  );
+}
+
 
   void _showClearHistoryDialog(BuildContext context) {
     showDialog(

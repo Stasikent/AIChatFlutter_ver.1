@@ -1,214 +1,586 @@
-// Импорт библиотеки для работы с JSON
 import 'dart:convert';
-// Импорт библиотеки для работы с файловой системой
 import 'dart:io';
-// Импорт основных классов Flutter
-import 'package:flutter/foundation.dart';
-// Импорт пакета для получения путей к директориям
-import 'package:path_provider/path_provider.dart';
-// Импорт модели сообщения
-import '../models/message.dart';
-// Импорт клиента для работы с API
-import '../api/openrouter_client.dart';
-// Импорт сервиса для работы с базой данных
-import '../services/database_service.dart';
-// Импорт сервиса для аналитики
-import '../services/analytics_service.dart';
 
-// Основной класс провайдера для управления состоянием чата
+import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../api/openrouter_client.dart';
+import '../models/message.dart';
+import '../models/chat_session.dart';
+import '../services/analytics_service.dart';
+import '../services/database_service.dart';
+import '../services/usage_stats_service.dart';
+
 class ChatProvider with ChangeNotifier {
-  // Клиент для работы с API
   final OpenRouterClient _api = OpenRouterClient();
-  // Список сообщений чата
-  final List<ChatMessage> _messages = [];
-  // Логи для отладки
+
+  static const String _chatsStorageKey = 'chat_sessions';
+  static const String _currentChatIdKey = 'current_chat_id';
+
   final List<String> _debugLogs = [];
-  // Список доступных моделей
+
+  List<ChatSession> _chats = [];
+  String? _currentChatId;
+
+  List<Map<String, dynamic>> _allModels = [];
   List<Map<String, dynamic>> _availableModels = [];
-  // Текущая выбранная модель
+
   String? _currentModel;
-  // Баланс пользователя
   String _balance = '\$0.00';
-  // Флаг загрузки
   bool _isLoading = false;
 
-  // Метод для логирования сообщений
-  void _log(String message) {
-    // Добавление сообщения в логи с временной меткой
-    _debugLogs.add('${DateTime.now()}: $message');
-    // Вывод сообщения в консоль
-    debugPrint(message);
+  String _modelSearchQuery = '';
+  String _modelFamilyFilter = 'Все';
+  String _modelSortMode = 'name_asc';
+
+  final Set<String> _favoriteModelIds = {};
+  bool _showOnlyFavorites = false;
+
+  final DatabaseService _db = DatabaseService();
+  final AnalyticsService _analytics = AnalyticsService();
+  final UsageStatsService _usageStats = UsageStatsService();
+
+  List<ChatSession> get chats => List.unmodifiable(_chats);
+
+  ChatSession? get currentChat {
+    if (_currentChatId == null || _chats.isEmpty) {
+      return null;
+    }
+
+    try {
+      return _chats.firstWhere((chat) => chat.id == _currentChatId);
+    } catch (_) {
+      return _chats.isNotEmpty ? _chats.first : null;
+    }
   }
 
-  // Геттер для получения неизменяемого списка сообщений
-  List<ChatMessage> get messages => List.unmodifiable(_messages);
-  // Геттер для получения списка доступных моделей
-  List<Map<String, dynamic>> get availableModels => _availableModels;
-  // Геттер для получения текущей модели
-  String? get currentModel => _currentModel;
-  // Геттер для получения баланса
-  String get balance => _balance;
-  // Геттер для получения состояния загрузки
-  bool get isLoading => _isLoading;
+  List<ChatMessage> get messages =>
+      List.unmodifiable(currentChat?.messages ?? []);
 
-  // Геттер для получения базового URL
+  List<Map<String, dynamic>> get availableModels => _availableModels;
+
+  String? get currentModel => _currentModel;
+  String get balance => _balance;
+  bool get isLoading => _isLoading;
   String? get baseUrl => _api.baseUrl;
 
-  // Конструктор провайдера
+  String get modelSearchQuery => _modelSearchQuery;
+  String get modelFamilyFilter => _modelFamilyFilter;
+  String get modelSortMode => _modelSortMode;
+
+  bool get showOnlyFavorites => _showOnlyFavorites;
+
+  bool isFavoriteModel(String modelId) {
+    return _favoriteModelIds.contains(modelId);
+  }
+
+  List<String> get modelFamilies {
+    final families = _allModels
+        .map((model) => _detectModelFamily(model['id']?.toString() ?? ''))
+        .toSet()
+        .toList();
+
+    families.sort();
+
+    return ['Все', ...families];
+  }
+
   ChatProvider() {
-    // Инициализация провайдера
     _initializeProvider();
   }
 
-  // Метод инициализации провайдера
+  void _log(String message) {
+    _debugLogs.add('${DateTime.now()}: $message');
+    debugPrint(message);
+  }
+
   Future<void> _initializeProvider() async {
     try {
-      // Логирование начала инициализации
       _log('Initializing provider...');
-      // Загрузка доступных моделей
+
+      await _loadChats();
+
       await _loadModels();
       _log('Models loaded: $_availableModels');
-      // Загрузка баланса
+
       await _loadBalance();
       _log('Balance loaded: $_balance');
-      // Загрузка истории сообщений
-      await _loadHistory();
-      _log('History loaded: ${_messages.length} messages');
+
+      notifyListeners();
     } catch (e, stackTrace) {
-      // Логирование ошибок инициализации
       _log('Error initializing provider: $e');
       _log('Stack trace: $stackTrace');
     }
   }
 
-  // Метод загрузки доступных моделей
+  Future<void> _loadChats() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    final rawChats = prefs.getString(_chatsStorageKey);
+    final savedCurrentChatId = prefs.getString(_currentChatIdKey);
+
+    if (rawChats == null || rawChats.isEmpty) {
+      final firstChat = _createEmptyChat(title: 'Новый чат');
+
+      _chats = [firstChat];
+      _currentChatId = firstChat.id;
+
+      await _saveChats();
+      return;
+    }
+
+    try {
+      final decoded = jsonDecode(rawChats) as List;
+
+      _chats = decoded
+          .map(
+            (item) => ChatSession.fromJson(item as Map<String, dynamic>),
+          )
+          .toList();
+
+      if (_chats.isEmpty) {
+        final firstChat = _createEmptyChat(title: 'Новый чат');
+        _chats = [firstChat];
+        _currentChatId = firstChat.id;
+      } else if (savedCurrentChatId != null &&
+          _chats.any((chat) => chat.id == savedCurrentChatId)) {
+        _currentChatId = savedCurrentChatId;
+      } else {
+        _currentChatId = _chats.first.id;
+      }
+    } catch (e) {
+      _log('Error loading chats: $e');
+
+      final firstChat = _createEmptyChat(title: 'Новый чат');
+      _chats = [firstChat];
+      _currentChatId = firstChat.id;
+    }
+  }
+
+  Future<void> _saveChats() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    final encoded = jsonEncode(
+      _chats.map((chat) => chat.toJson()).toList(),
+    );
+
+    await prefs.setString(_chatsStorageKey, encoded);
+
+    if (_currentChatId != null) {
+      await prefs.setString(_currentChatIdKey, _currentChatId!);
+    }
+  }
+
+  ChatSession _createEmptyChat({required String title}) {
+    final now = DateTime.now();
+
+    return ChatSession(
+      id: now.microsecondsSinceEpoch.toString(),
+      title: title,
+      createdAt: now,
+      messages: [],
+    );
+  }
+
+  Future<void> createNewChat() async {
+    final chat = _createEmptyChat(title: 'Новый чат');
+
+    _chats.insert(0, chat);
+    _currentChatId = chat.id;
+
+    await _saveChats();
+
+    notifyListeners();
+  }
+
+  Future<void> switchChat(String chatId) async {
+    if (!_chats.any((chat) => chat.id == chatId)) {
+      return;
+    }
+
+    _currentChatId = chatId;
+
+    await _saveChats();
+
+    notifyListeners();
+  }
+
+  Future<void> deleteChat(String chatId) async {
+    _chats.removeWhere((chat) => chat.id == chatId);
+
+    if (_chats.isEmpty) {
+      final chat = _createEmptyChat(title: 'Новый чат');
+      _chats.add(chat);
+      _currentChatId = chat.id;
+    } else if (_currentChatId == chatId) {
+      _currentChatId = _chats.first.id;
+    }
+
+    await _saveChats();
+
+    notifyListeners();
+  }
+
+  Future<void> renameCurrentChat(String title) async {
+    final chat = currentChat;
+
+    if (chat == null) {
+      return;
+    }
+
+    final cleanTitle = title.trim();
+
+    if (cleanTitle.isEmpty) {
+      return;
+    }
+
+    chat.title = cleanTitle;
+
+    await _saveChats();
+
+    notifyListeners();
+  }
+
+  void _autoRenameChatIfNeeded(String userMessage) {
+    final chat = currentChat;
+
+    if (chat == null) {
+      return;
+    }
+
+    if (chat.title != 'Новый чат') {
+      return;
+    }
+
+    final title = userMessage.trim();
+
+    if (title.isEmpty) {
+      return;
+    }
+
+    chat.title = title.length > 32 ? '${title.substring(0, 32)}...' : title;
+  }
+
   Future<void> _loadModels() async {
     try {
-      // Получение списка моделей из API
-      _availableModels = await _api.getModels();
-      // Сортировка моделей по имени по возрастанию
-      _availableModels
-          .sort((a, b) => (a['name'] as String).compareTo(b['name'] as String));
-      // Установка модели по умолчанию, если она не выбрана
+      _allModels = await _api.getModels();
+      _applyModelFilters();
+
       if (_availableModels.isNotEmpty && _currentModel == null) {
         _currentModel = _availableModels[0]['id'];
       }
-      // Уведомление слушателей об изменениях
+
       notifyListeners();
     } catch (e) {
-      // Логирование ошибок загрузки моделей
       _log('Error loading models: $e');
     }
   }
 
-  // Метод загрузки баланса пользователя
+  void setModelSearchQuery(String query) {
+    _modelSearchQuery = query.trim().toLowerCase();
+    _applyModelFilters();
+    notifyListeners();
+  }
+
+  void setModelFamilyFilter(String family) {
+    _modelFamilyFilter = family;
+    _applyModelFilters();
+    notifyListeners();
+  }
+
+  void setModelSortMode(String sortMode) {
+    _modelSortMode = sortMode;
+    _applyModelFilters();
+    notifyListeners();
+  }
+
+  void resetModelFilters() {
+    _modelSearchQuery = '';
+    _modelFamilyFilter = 'Все';
+    _modelSortMode = 'name_asc';
+    _applyModelFilters();
+    notifyListeners();
+  }
+
+  void toggleFavoriteModel(String modelId) {
+    if (_favoriteModelIds.contains(modelId)) {
+      _favoriteModelIds.remove(modelId);
+    } else {
+      _favoriteModelIds.add(modelId);
+    }
+
+    _applyModelFilters();
+
+    notifyListeners();
+  }
+
+  void toggleShowOnlyFavorites() {
+    _showOnlyFavorites = !_showOnlyFavorites;
+    _applyModelFilters();
+    notifyListeners();
+  }
+
+  void _applyModelFilters() {
+    var filtered = List<Map<String, dynamic>>.from(_allModels);
+
+    if (_modelSearchQuery.isNotEmpty) {
+      filtered = filtered.where((model) {
+        final id = model['id']?.toString().toLowerCase() ?? '';
+        final name = model['name']?.toString().toLowerCase() ?? '';
+
+        return id.contains(_modelSearchQuery) || name.contains(_modelSearchQuery);
+      }).toList();
+    }
+
+    if (_modelFamilyFilter != 'Все') {
+      filtered = filtered.where((model) {
+        final family = _detectModelFamily(model['id']?.toString() ?? '');
+        return family == _modelFamilyFilter;
+      }).toList();
+    }
+
+    if (_showOnlyFavorites) {
+      filtered = filtered.where((model) {
+        final id = model['id']?.toString() ?? '';
+        return _favoriteModelIds.contains(id);
+      }).toList();
+    }
+
+    filtered.sort((a, b) {
+      switch (_modelSortMode) {
+        case 'name_desc':
+          return (b['name']?.toString() ?? '')
+              .compareTo(a['name']?.toString() ?? '');
+
+        case 'price_asc':
+          return _getModelAveragePrice(a).compareTo(_getModelAveragePrice(b));
+
+        case 'price_desc':
+          return _getModelAveragePrice(b).compareTo(_getModelAveragePrice(a));
+
+        case 'context_asc':
+          return _getContextLength(a).compareTo(_getContextLength(b));
+
+        case 'context_desc':
+          return _getContextLength(b).compareTo(_getContextLength(a));
+
+        case 'name_asc':
+        default:
+          return (a['name']?.toString() ?? '')
+              .compareTo(b['name']?.toString() ?? '');
+      }
+    });
+
+    _availableModels = filtered;
+
+    if (_currentModel != null &&
+        !_availableModels.any((model) => model['id'] == _currentModel)) {
+      _currentModel =
+          _availableModels.isNotEmpty ? _availableModels[0]['id'] : null;
+    }
+  }
+
+  String _detectModelFamily(String modelId) {
+    final id = modelId.toLowerCase();
+
+    if (id.contains('openai') || id.contains('gpt')) return 'OpenAI';
+    if (id.contains('deepseek')) return 'DeepSeek';
+    if (id.contains('anthropic') || id.contains('claude')) return 'Anthropic';
+    if (id.contains('google') || id.contains('gemini')) return 'Google';
+    if (id.contains('nvidia')) return 'NVIDIA';
+    if (id.contains('meta') || id.contains('llama')) return 'Meta';
+    if (id.contains('mistral') || id.contains('mixtral')) return 'Mistral';
+    if (id.contains('qwen') || id.contains('alibaba')) return 'Qwen';
+    if (id.contains('x-ai') || id.contains('grok')) return 'xAI';
+    if (id.contains('cohere')) return 'Cohere';
+    if (id.contains('moonshot') || id.contains('kimi')) return 'Moonshot';
+    if (id.contains('perplexity')) return 'Perplexity';
+
+    return 'Другое';
+  }
+
+  double _getModelAveragePrice(Map<String, dynamic> model) {
+    final prompt = double.tryParse(
+          model['pricing']?['prompt']?.toString() ?? '0',
+        ) ??
+        0.0;
+
+    final completion = double.tryParse(
+          model['pricing']?['completion']?.toString() ?? '0',
+        ) ??
+        0.0;
+
+    return (prompt + completion) / 2;
+  }
+
+  int _getContextLength(Map<String, dynamic> model) {
+    return int.tryParse(model['context_length']?.toString() ?? '0') ?? 0;
+  }
+
   Future<void> _loadBalance() async {
     try {
-      // Получение баланса из API
       _balance = await _api.getBalance();
-      // Уведомление слушателей об изменениях
       notifyListeners();
     } catch (e) {
-      // Логирование ошибок загрузки баланса
       _log('Error loading balance: $e');
     }
   }
 
-  // Сервис для работы с базой данных
-  final DatabaseService _db = DatabaseService();
-  // Сервис для сбора аналитики
-  final AnalyticsService _analytics = AnalyticsService();
-
-  // Метод загрузки истории сообщений
-  Future<void> _loadHistory() async {
-    try {
-      // Получение сообщений из базы данных
-      final messages = await _db.getMessages();
-      // Очистка текущего списка и добавление новых сообщений
-      _messages.clear();
-      _messages.addAll(messages);
-      // Уведомление слушателей об изменениях
-      notifyListeners();
-    } catch (e) {
-      // Логирование ошибок загрузки истории
-      _log('Error loading history: $e');
-    }
-  }
-
-  // Метод сохранения сообщения в базу данных
   Future<void> _saveMessage(ChatMessage message) async {
     try {
-      // Сохранение сообщения в базу данных
       await _db.saveMessage(message);
     } catch (e) {
-      // Логирование ошибок сохранения сообщения
       _log('Error saving message: $e');
     }
   }
 
-  // Метод отправки сообщения
+  String _extractAiContent(Map<String, dynamic> response) {
+    try {
+      final choices = response['choices'];
+
+      if (choices is List && choices.isNotEmpty) {
+        final firstChoice = choices[0];
+
+        if (firstChoice is Map) {
+          final message = firstChoice['message'];
+
+          if (message is Map) {
+            final content = message['content'];
+
+            if (content != null && content.toString().trim().isNotEmpty) {
+              return content.toString();
+            }
+
+            final reasoning = message['reasoning'];
+
+            if (reasoning != null && reasoning.toString().trim().isNotEmpty) {
+              return reasoning.toString();
+            }
+
+            final refusal = message['refusal'];
+
+            if (refusal != null && refusal.toString().trim().isNotEmpty) {
+              return refusal.toString();
+            }
+          }
+
+          final text = firstChoice['text'];
+
+          if (text != null && text.toString().trim().isNotEmpty) {
+            return text.toString();
+          }
+        }
+      }
+
+      return 'Модель вернула пустой ответ.';
+    } catch (e) {
+      return 'Не удалось прочитать ответ модели: $e';
+    }
+  }
+
+  double _calculateCost({
+    required Map<String, dynamic> response,
+    required int promptTokens,
+    required int completionTokens,
+  }) {
+    final totalCost = (response['usage']?['total_cost'] as num?)?.toDouble();
+
+    if (totalCost != null) {
+      return totalCost;
+    }
+
+    Map<String, dynamic> model = {
+      'pricing': {
+        'prompt': '0',
+        'completion': '0',
+      },
+    };
+
+    for (final item in _allModels) {
+      if (item['id'] == _currentModel) {
+        model = item;
+        break;
+      }
+    }
+
+    final promptPrice = double.tryParse(
+          model['pricing']?['prompt']?.toString() ?? '0',
+        ) ??
+        0.0;
+
+    final completionPrice = double.tryParse(
+          model['pricing']?['completion']?.toString() ?? '0',
+        ) ??
+        0.0;
+
+    return (promptTokens * promptPrice) + (completionTokens * completionPrice);
+  }
+
   Future<void> sendMessage(String content, {bool trackAnalytics = true}) async {
-    // Проверка на пустое сообщение или отсутствие модели
     if (content.trim().isEmpty || _currentModel == null) return;
 
-    // Установка флага загрузки
+    final chat = currentChat;
+
+    if (chat == null) return;
+
     _isLoading = true;
-    // Уведомление слушателей об изменениях
     notifyListeners();
 
     try {
-      // Обеспечение правильного кодирования сообщения
       content = utf8.decode(utf8.encode(content));
 
-      // Добавление сообщения пользователя
+      _autoRenameChatIfNeeded(content);
+
       final userMessage = ChatMessage(
         content: content,
         isUser: true,
         modelId: _currentModel,
       );
-      _messages.add(userMessage);
-      // Уведомление слушателей об изменениях
+
+      chat.messages.add(userMessage);
       notifyListeners();
 
-      // Сохранение сообщения пользователя
       await _saveMessage(userMessage);
+      await _saveChats();
 
-      // Запись времени начала отправки
       final startTime = DateTime.now();
 
-      // Отправка сообщения в API
       final response = await _api.sendMessage(content, _currentModel!);
-      // Логирование ответа API
+
       _log('API Response: $response');
 
-      // Расчет времени ответа
       final responseTime =
           DateTime.now().difference(startTime).inMilliseconds / 1000;
 
       if (response.containsKey('error')) {
-        // Добавление сообщения об ошибке
         final errorMessage = ChatMessage(
           content: utf8.decode(utf8.encode('Error: ${response['error']}')),
           isUser: false,
           modelId: _currentModel,
         );
-        _messages.add(errorMessage);
+
+        chat.messages.add(errorMessage);
         await _saveMessage(errorMessage);
+        await _saveChats();
       } else if (response.containsKey('choices') &&
           response['choices'] is List &&
-          response['choices'].isNotEmpty &&
-          response['choices'][0] is Map &&
-          response['choices'][0].containsKey('message') &&
-          response['choices'][0]['message'] is Map &&
-          response['choices'][0]['message'].containsKey('content')) {
-        // Добавление ответа AI
-        final aiContent = utf8.decode(utf8.encode(
-          response['choices'][0]['message']['content'] as String,
-        ));
-        // Получение количества использованных токенов
-        final tokens = response['usage']?['total_tokens'] as int? ?? 0;
+          response['choices'].isNotEmpty) {
+        final aiContent = utf8.decode(
+          utf8.encode(
+            _extractAiContent(response),
+          ),
+        );
 
-        // Трекинг аналитики, если включен
+        final tokens =
+            (response['usage']?['total_tokens'] as num?)?.toInt() ?? 0;
+
+        final promptTokens =
+            (response['usage']?['prompt_tokens'] as num?)?.toInt() ?? 0;
+
+        final completionTokens =
+            (response['usage']?['completion_tokens'] as num?)?.toInt() ?? 0;
+
         if (trackAnalytics) {
           _analytics.trackMessage(
             model: _currentModel!,
@@ -218,26 +590,12 @@ class ChatProvider with ChangeNotifier {
           );
         }
 
-        // Создание и добавление сообщения AI
-        // Получение количества токенов из ответа
-        final promptTokens = response['usage']['prompt_tokens'] ?? 0;
-        final completionTokens = response['usage']['completion_tokens'] ?? 0;
+        final cost = _calculateCost(
+          response: response,
+          promptTokens: promptTokens,
+          completionTokens: completionTokens,
+        );
 
-        final totalCost = response['usage']?['total_cost'];
-
-        // Получение тарифов для текущей модели
-        final model = _availableModels
-            .firstWhere((model) => model['id'] == _currentModel);
-
-        // Расчет стоимости запроса
-        final cost = (totalCost == null)
-            ? ((promptTokens *
-                    (double.tryParse(model['pricing']?['prompt']) ?? 0)) +
-                (completionTokens *
-                    (double.tryParse(model['pricing']?['completion']) ?? 0)))
-            : totalCost;
-
-        // Логирование ответа API
         _log('Cost Response: $cost');
 
         final aiMessage = ChatMessage(
@@ -247,115 +605,111 @@ class ChatProvider with ChangeNotifier {
           tokens: tokens,
           cost: cost,
         );
-        _messages.add(aiMessage);
-        // Сохранение сообщения AI
-        await _saveMessage(aiMessage);
 
-        // Обновление баланса после успешного сообщения
+        chat.messages.add(aiMessage);
+
+        await _saveMessage(aiMessage);
+        await _saveChats();
+
+        await _usageStats.addCost(cost / 1000);
+
         await _loadBalance();
       } else {
         throw Exception('Invalid API response format');
       }
     } catch (e) {
-      // Логирование ошибок отправки сообщения
       _log('Error sending message: $e');
-      // Добавление сообщения об ошибке
+
       final errorMessage = ChatMessage(
         content: utf8.decode(utf8.encode('Error: $e')),
         isUser: false,
         modelId: _currentModel,
       );
-      _messages.add(errorMessage);
-      // Сохранение сообщения об ошибке
+
+      chat.messages.add(errorMessage);
+
       await _saveMessage(errorMessage);
+      await _saveChats();
     } finally {
-      // Сброс флага загрузки
       _isLoading = false;
-      // Уведомление слушателей об изменениях
       notifyListeners();
     }
   }
 
-  // Метод установки текущей модели
   void setCurrentModel(String modelId) {
-    // Установка новой модели
     _currentModel = modelId;
-    // Уведомление слушателей об изменениях
     notifyListeners();
   }
 
-  // Метод очистки истории
   Future<void> clearHistory() async {
-    // Очистка списка сообщений
-    _messages.clear();
-    // Очистка истории в базе данных
+    final chat = currentChat;
+
+    if (chat != null) {
+      chat.messages.clear();
+    }
+
     await _db.clearHistory();
-    // Очистка данных аналитики
     _analytics.clearData();
-    // Уведомление слушателей об изменениях
+    await _saveChats();
+
     notifyListeners();
   }
 
-  // Метод экспорта логов
   Future<String> exportLogs() async {
-    // Получение директории для сохранения файла
     final directory = await getApplicationDocumentsDirectory();
-    // Генерация имени файла с текущей датой и временем
     final now = DateTime.now();
+
     final fileName =
         'chat_logs_${now.year}${now.month}${now.day}_${now.hour}${now.minute}${now.second}.txt';
-    // Создание файла
+
     final file = File('${directory.path}/$fileName');
 
-    // Создание буфера для записи логов
     final buffer = StringBuffer();
+
     buffer.writeln('=== Debug Logs ===\n');
-    // Запись всех логов
+
     for (final log in _debugLogs) {
       buffer.writeln(log);
     }
 
     buffer.writeln('\n=== Chat Logs ===\n');
-    // Запись времени генерации
     buffer.writeln('Generated: ${now.toString()}\n');
 
-    // Запись всех сообщений
-    for (final message in _messages) {
+    for (final message in messages) {
       buffer.writeln('${message.isUser ? "User" : "AI"} (${message.modelId}):');
       buffer.writeln(message.content);
-      // Запись количества токенов, если есть
+
       if (message.tokens != null) {
         buffer.writeln('Tokens: ${message.tokens}');
       }
-      // Запись времени сообщения
+
+      if (message.cost != null) {
+        buffer.writeln('Cost: ${message.cost}');
+      }
+
       buffer.writeln('Time: ${message.timestamp}');
       buffer.writeln('---\n');
     }
 
-    // Запись содержимого в файл
     await file.writeAsString(buffer.toString());
-    // Возвращение пути к файлу
+
     return file.path;
   }
 
-  // Метод экспорта сообщений в формате JSON
   Future<String> exportMessagesAsJson() async {
-    // Получение директории для сохранения файла
     final directory = await getApplicationDocumentsDirectory();
-    // Генерация имени файла с текущей датой и временем
     final now = DateTime.now();
+
     final fileName =
         'chat_history_${now.year}${now.month}${now.day}_${now.hour}${now.minute}${now.second}.json';
-    // Создание файла
+
     final file = File('${directory.path}/$fileName');
 
-    // Преобразование сообщений в JSON
     final List<Map<String, dynamic>> messagesJson =
-        _messages.map((message) => message.toJson()).toList();
+        messages.map((message) => message.toJson()).toList();
 
-    // Запись JSON в файл
     await file.writeAsString(jsonEncode(messagesJson));
-    // Возвращение пути к файлу
+
     return file.path;
   }
 
@@ -363,22 +717,14 @@ class ChatProvider with ChangeNotifier {
     return _api.formatPricing(pricing);
   }
 
-  // Метод экспорта истории
   Future<Map<String, dynamic>> exportHistory() async {
-    // Получение статистики из базы данных
     final dbStats = await _db.getStatistics();
-    // Получение статистики аналитики
     final analyticsStats = _analytics.getStatistics();
-    // Получение данных сессий
     final sessionData = _analytics.exportSessionData();
-    // Получение эффективности моделей
     final modelEfficiency = _analytics.getModelEfficiency();
-    // Получение статистики времени ответа
     final responseTimeStats = _analytics.getResponseTimeStats();
-    // Получение статистики длины сообщений
     final messageLengthStats = _analytics.getMessageLengthStats();
 
-    // Возвращение всех данных в виде Map
     return {
       'database_stats': dbStats,
       'analytics_stats': analyticsStats,
