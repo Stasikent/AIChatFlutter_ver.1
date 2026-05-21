@@ -11,6 +11,7 @@ import '../models/chat_session.dart';
 import '../services/analytics_service.dart';
 import '../services/database_service.dart';
 import '../services/usage_stats_service.dart';
+import '../services/vsegpt_access_service.dart';
 
 class ChatProvider with ChangeNotifier {
   final OpenRouterClient _api = OpenRouterClient();
@@ -40,6 +41,11 @@ class ChatProvider with ChangeNotifier {
   final DatabaseService _db = DatabaseService();
   final AnalyticsService _analytics = AnalyticsService();
   final UsageStatsService _usageStats = UsageStatsService();
+  final VsegptAccessService _vsegptAccess = VsegptAccessService();
+
+final String _subscriptionLevel = 'basic';
+
+bool _showOnlyAvailableModels = false;
 
   List<ChatSession> get chats => List.unmodifiable(_chats);
 
@@ -70,6 +76,26 @@ class ChatProvider with ChangeNotifier {
   String get modelSortMode => _modelSortMode;
 
   bool get showOnlyFavorites => _showOnlyFavorites;
+
+  bool get showOnlyAvailableModels =>
+    _showOnlyAvailableModels;
+
+  String get subscriptionLevel =>
+    _subscriptionLevel;
+
+  bool isModelAvailable(String modelId) {
+    return _vsegptAccess.isModelAvailable(
+      modelId: modelId,
+      subscriptionLevel: _subscriptionLevel,
+    );
+  }
+
+  String modelAccessLabel(String modelId) {
+    return _vsegptAccess.accessLabel(
+      modelId: modelId,
+      subscriptionLevel: _subscriptionLevel,
+    );
+  }
 
   bool isFavoriteModel(String modelId) {
     return _favoriteModelIds.contains(modelId);
@@ -321,6 +347,15 @@ class ChatProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  void toggleShowOnlyAvailableModels() {
+    _showOnlyAvailableModels =
+        !_showOnlyAvailableModels;
+
+    _applyModelFilters();
+
+    notifyListeners();
+  }
+
   void _applyModelFilters() {
     var filtered = List<Map<String, dynamic>>.from(_allModels);
 
@@ -344,6 +379,17 @@ class ChatProvider with ChangeNotifier {
       filtered = filtered.where((model) {
         final id = model['id']?.toString() ?? '';
         return _favoriteModelIds.contains(id);
+      }).toList();
+    }
+
+    if (_showOnlyAvailableModels) {
+      filtered = filtered.where((model) {
+
+        final id =
+            model['id']?.toString() ?? '';
+
+        return isModelAvailable(id);
+
       }).toList();
     }
 
@@ -637,7 +683,18 @@ class ChatProvider with ChangeNotifier {
   }
 
   void setCurrentModel(String modelId) {
+
+    if (!isModelAvailable(modelId)) {
+
+      _log(
+        'Blocked unavailable model: $modelId',
+      );
+
+      return;
+    }
+
     _currentModel = modelId;
+
     notifyListeners();
   }
 

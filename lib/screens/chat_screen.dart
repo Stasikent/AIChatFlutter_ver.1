@@ -311,66 +311,72 @@ class ChatScreen extends StatelessWidget {
   return Consumer<ChatProvider>(
     builder: (context, chatProvider, child) {
       return Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: 8,
-          vertical: 6,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         color: const Color(0xFF2A1208),
         child: Column(
           children: [
-
-            // Поиск
             TextField(
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 12,
-              ),
+              style: const TextStyle(color: Colors.white, fontSize: 12),
               decoration: InputDecoration(
                 hintText: 'Поиск модели...',
-                hintStyle: const TextStyle(
-                  color: Colors.white54,
-                ),
-                prefixIcon: const Icon(
-                  Icons.search,
-                  color: Colors.orange,
-                ),
+                hintStyle: const TextStyle(color: Colors.white54),
+                prefixIcon: const Icon(Icons.search, color: Colors.orange),
                 filled: true,
                 fillColor: const Color(0xFF4A160A),
                 border: OutlineInputBorder(
-                  borderRadius:
-                      BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(10),
                 ),
               ),
-              onChanged: (value) {
-                chatProvider
-                    .setModelSearchQuery(value);
-              },
+              onChanged: chatProvider.setModelSearchQuery,
             ),
 
             const SizedBox(height: 8),
 
             Row(
               children: [
+                FilterChip(
+                  label: const Text(
+                    '⭐ Избранные',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  selected: chatProvider.showOnlyFavorites,
+                  selectedColor: Colors.deepOrange,
+                  backgroundColor: const Color(0xFF4A160A),
+                  onSelected: (_) {
+                    chatProvider.toggleShowOnlyFavorites();
+                  },
+                ),
 
+                const SizedBox(width: 8),
+
+                FilterChip(
+                  label: const Text(
+                    '🟢 Доступные',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  selected: chatProvider.showOnlyAvailableModels,
+                  selectedColor: Colors.green,
+                  backgroundColor: const Color(0xFF4A160A),
+                  onSelected: (_) {
+                    chatProvider.toggleShowOnlyAvailableModels();
+                  },
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 8),
+
+            Row(
+              children: [
                 Expanded(
                   child: DropdownButtonFormField<String>(
-                    initialValue:
-                        chatProvider.modelFamilyFilter,
-                    dropdownColor:
-                        const Color(0xFF2A1208),
-
-                    decoration:
-                        const InputDecoration(
+                    initialValue: chatProvider.modelFamilyFilter,
+                    dropdownColor: const Color(0xFF2A1208),
+                    decoration: const InputDecoration(
                       labelText: 'Провайдер',
-                      labelStyle:
-                          TextStyle(
-                        color: Colors.white70,
-                      ),
+                      labelStyle: TextStyle(color: Colors.white70),
                     ),
-
-                    items: chatProvider
-                        .modelFamilies
-                        .map((family) {
+                    items: chatProvider.modelFamilies.map((family) {
                       return DropdownMenuItem(
                         value: family,
                         child: Text(
@@ -382,12 +388,9 @@ class ChatScreen extends StatelessWidget {
                         ),
                       );
                     }).toList(),
-
                     onChanged: (value) {
                       if (value != null) {
-                        chatProvider
-                            .setModelFamilyFilter(
-                                value);
+                        chatProvider.setModelFamilyFilter(value);
                       }
                     },
                   ),
@@ -396,67 +399,24 @@ class ChatScreen extends StatelessWidget {
                 const SizedBox(width: 10),
 
                 Expanded(
-                  child:
-                      DropdownButtonFormField<
-                          String>(
-                    initialValue:
-                        chatProvider.modelSortMode,
-
-                    dropdownColor:
-                        const Color(0xFF2A1208),
-
-                    decoration:
-                        const InputDecoration(
+                  child: DropdownButtonFormField<String>(
+                    initialValue: chatProvider.modelSortMode,
+                    dropdownColor: const Color(0xFF2A1208),
+                    decoration: const InputDecoration(
                       labelText: 'Сортировка',
-                      labelStyle:
-                          TextStyle(
-                        color: Colors.white70,
-                      ),
+                      labelStyle: TextStyle(color: Colors.white70),
                     ),
-
                     items: const [
-
+                      DropdownMenuItem(value: 'name_asc', child: Text('А-Я')),
+                      DropdownMenuItem(value: 'name_desc', child: Text('Я-А')),
+                      DropdownMenuItem(value: 'price_asc', child: Text('Цена ↑')),
+                      DropdownMenuItem(value: 'price_desc', child: Text('Цена ↓')),
                       DropdownMenuItem(
-                        value:
-                            'name_asc',
-                        child:
-                            Text('А-Я'),
-                      ),
-
-                      DropdownMenuItem(
-                        value:
-                            'name_desc',
-                        child:
-                            Text('Я-А'),
-                      ),
-
-                      DropdownMenuItem(
-                        value:
-                            'price_asc',
-                        child: Text(
-                            'Цена ↑'),
-                      ),
-
-                      DropdownMenuItem(
-                        value:
-                            'price_desc',
-                        child: Text(
-                            'Цена ↓'),
-                      ),
-
-                      DropdownMenuItem(
-                        value:
-                            'context_desc',
-                        child: Text(
-                            'Контекст ↑'),
-                      ),
+                          value: 'context_desc', child: Text('Контекст ↑')),
                     ],
-
                     onChanged: (value) {
                       if (value != null) {
-                        chatProvider
-                            .setModelSortMode(
-                                value);
+                        chatProvider.setModelSortMode(value);
                       }
                     },
                   ),
@@ -471,80 +431,84 @@ class ChatScreen extends StatelessWidget {
 }
 
   Widget _buildModelSelector(BuildContext context) {
-    return Consumer<ChatProvider>(
-      builder: (context, chatProvider, child) {
-        return SizedBox(
-          width: MediaQuery.of(context).size.width * 0.6,
-          child: DropdownButton<String>(
-            value: chatProvider.currentModel,
-            hint: const Text(
-              'Выберите модель',
-              style: TextStyle(color: Colors.white70, fontSize: 12),
-              overflow: TextOverflow.ellipsis,
-            ),
-            dropdownColor: const Color(0xFF2A1208),
-            style: const TextStyle(color: Colors.white, fontSize: 12),
-            isExpanded: true,
-            underline: Container(
-              height: 1,
-              color: Colors.deepOrange,
-            ),
-            onChanged: (String? newValue) {
-              if (newValue != null) {
+  return Consumer<ChatProvider>(
+    builder: (context, chatProvider, child) {
+      return SizedBox(
+        width: MediaQuery.of(context).size.width * 0.6,
+        child: DropdownButton<String>(
+          value: chatProvider.currentModel,
+          hint: const Text(
+            'Выберите модель',
+            style: TextStyle(color: Colors.white70, fontSize: 12),
+            overflow: TextOverflow.ellipsis,
+          ),
+          dropdownColor: const Color(0xFF2A1208),
+          style: const TextStyle(color: Colors.white, fontSize: 12),
+          isExpanded: true,
+          underline: Container(
+            height: 1,
+            color: Colors.deepOrange,
+          ),
+          onChanged: (String? newValue) {
+            if (newValue != null) {
+              if (chatProvider.isModelAvailable(newValue)) {
                 chatProvider.setCurrentModel(newValue);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      chatProvider.modelAccessLabel(newValue),
+                    ),
+                    backgroundColor: Colors.redAccent,
+                  ),
+                );
               }
-            },
-            items: chatProvider.availableModels
-                .map<DropdownMenuItem<String>>((Map<String, dynamic> model) {
+            }
+          },
+          items: chatProvider.availableModels.map<DropdownMenuItem<String>>(
+            (Map<String, dynamic> model) {
+              final modelId = model['id']?.toString() ?? '';
+              final modelName = model['name']?.toString() ?? modelId;
+
+              final isAvailable =
+                  chatProvider.isModelAvailable(modelId);
+
+              final isFavorite =
+                  chatProvider.isFavoriteModel(modelId);
+
               return DropdownMenuItem<String>(
-                value: model['id'],
+                value: modelId,
+                enabled: isAvailable,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
                       children: [
-
                         Expanded(
                           child: Text(
-                            model['name'] ?? '',
+                            '$modelName ${isAvailable ? '🟢' : '🔒'}',
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 12,
+                              color: isAvailable
+                                  ? Colors.white
+                                  : Colors.white38,
                             ),
                           ),
                         ),
-
-                        Consumer<ChatProvider>(
-                          builder: (context, chatProvider, child) {
-
-                            final modelId =
-                                model['id'] ?? '';
-
-                            final isFavorite =
-                                chatProvider
-                                    .isFavoriteModel(
-                                        modelId);
-
-                            return GestureDetector(
-                              onTap: () {
-                                chatProvider
-                                    .toggleFavoriteModel(
-                                        modelId);
-                              },
-
-                              child: Icon(
-                                isFavorite
-                                    ? Icons.star
-                                    : Icons.star_border,
-
-                                color: isFavorite
-                                    ? Colors.amber
-                                    : Colors.white54,
-
-                                size: 16,
-                              ),
-                            );
+                        GestureDetector(
+                          onTap: () {
+                            chatProvider.toggleFavoriteModel(modelId);
                           },
+                          child: Icon(
+                            isFavorite
+                                ? Icons.star
+                                : Icons.star_border,
+                            color: isFavorite
+                                ? Colors.amber
+                                : Colors.white54,
+                            size: 16,
+                          ),
                         ),
                       ],
                     ),
@@ -557,10 +521,18 @@ class ChatScreen extends StatelessWidget {
                         ),
                         Text(
                           chatProvider.formatPricing(
-                            double.tryParse(model['pricing']?['prompt']) ??
+                            double.tryParse(
+                                  model['pricing']?['prompt']?.toString() ??
+                                      '0',
+                                ) ??
                                 0.0,
                           ),
-                          style: const TextStyle(fontSize: 10),
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: isAvailable
+                                ? Colors.white
+                                : Colors.white38,
+                          ),
                         ),
                         const SizedBox(width: 8),
                         const Tooltip(
@@ -569,10 +541,18 @@ class ChatScreen extends StatelessWidget {
                         ),
                         Text(
                           chatProvider.formatPricing(
-                            double.tryParse(model['pricing']?['completion']) ??
+                            double.tryParse(
+                                  model['pricing']?['completion']?.toString() ??
+                                      '0',
+                                ) ??
                                 0.0,
                           ),
-                          style: const TextStyle(fontSize: 10),
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: isAvailable
+                                ? Colors.white
+                                : Colors.white38,
+                          ),
                         ),
                         const SizedBox(width: 8),
                         const Tooltip(
@@ -581,19 +561,25 @@ class ChatScreen extends StatelessWidget {
                         ),
                         Text(
                           ' ${model['context_length'] ?? '0'}',
-                          style: const TextStyle(fontSize: 10),
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: isAvailable
+                                ? Colors.white
+                                : Colors.white38,
+                          ),
                         ),
                       ],
                     ),
                   ],
                 ),
               );
-            }).toList(),
-          ),
-        );
-      },
-    );
-  }
+            },
+          ).toList(),
+        ),
+      );
+    },
+  );
+}
 
   Widget _buildBalanceDisplay(BuildContext context) {
     return Consumer<ChatProvider>(
