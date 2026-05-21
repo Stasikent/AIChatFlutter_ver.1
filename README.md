@@ -133,17 +133,54 @@ flutter run
 
 ## Скриншоты
 
-| First Auth | PIN |
-|------------|-----|
-| ![](assets/screenshots/first_auth.png) | ![](assets/screenshots/pin.png) |
+### Первый запуск
 
-| Chat | Analytics |
-|-------|------------|
-| ![](assets/screenshots/example_dialog.png) | ![](assets/screenshots/analytics.png) |
+![Первый запуск](assets/screenshots/first_auth.png)
 
-| Save History | Export Logs |
-|---------------|-------------|
-| ![](assets/screenshots/save_history.png) | ![](assets/screenshots/save_logs.png) |
+---
+
+### Авторизация по PIN
+
+![PIN](assets/screenshots/pin.png)
+
+---
+
+### Основной экран чата
+
+![Главный чат](assets/screenshots/chat.png)
+
+---
+
+### Список чатов
+
+![Список чатов](assets/screenshots/chat_list.png)
+
+---
+
+### Фильтрация моделей
+
+Поддерживается:
+
+- избранное
+- доступные модели
+- блокировка недоступных моделей
+- поиск
+- сортировка
+- фильтрация по провайдерам
+
+![Модели](assets/screenshots/models_filter.png)
+
+---
+
+### Навигация
+
+![Навигация](assets/screenshots/navigation.png)
+
+---
+
+### Настройки провайдера
+
+![Настройки](assets/screenshots/provider_settings.png)
 
 ---
 
