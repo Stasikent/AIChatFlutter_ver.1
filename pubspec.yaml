@@ -35,3 +35,4 @@ flutter:
   
   assets:
     - .env
+    - assets/models/vsegpt_models.json

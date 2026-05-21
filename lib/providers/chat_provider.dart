@@ -127,6 +127,8 @@ bool _showOnlyAvailableModels = false;
 
       await _loadChats();
 
+      await _vsegptAccess.loadModels();
+
       await _loadModels();
       _log('Models loaded: $_availableModels');
 
